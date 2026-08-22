@@ -1,5 +1,7 @@
 import streamlit as st
-from league_manager import LeagueManager
+import pandas as pd
+import random
+from datetime import datetime
 
 # Page configuration
 st.set_page_config(
@@ -10,35 +12,66 @@ st.set_page_config(
 )
 
 # Initialize session state
-if 'league_manager' not in st.session_state:
-    st.session_state.league_manager = LeagueManager()
-    st.session_state.selected_team = 0
+if 'initialized' not in st.session_state:
+    st.session_state.initialized = True
     st.session_state.user_teams = []
+    st.session_state.selected_team = None
+    
+    # Initialize teams
+    st.session_state.teams = []
+    ai_personalities = ["elite_qb", "elite_te", "elite_rb", "sleeper_hunter", "balanced"]
+    default_names = [
+        "Mahomes' Madness", "Josh's Legends", "Lamar's Lightning",
+        "Patrick's Picks", "Buffalo Bills Gang", "Philly Eagles",
+        "KC Chiefs Nation", "Ravens Revenge", "Cincinnati Bengals",
+        "Miami Dolphins", "New York Giants", "San Francisco 49ers"
+    ]
+    
+    for i in range(12):
+        st.session_state.teams.append({
+            "id": i,
+            "name": default_names[i],
+            "owner": f"Team {i+1}",
+            "is_ai": random.choice([True, False]),
+            "wins": 0,
+            "losses": 0,
+            "points_for": 0.0,
+            "points_against": 0.0,
+            "roster": [],
+            "faab_budget": 100,
+            "draft_personality": random.choice(ai_personalities),
+            "trades_made": 0
+        })
 
+def get_personality_description(personality: str) -> str:
+    descriptions = {
+        "elite_qb": "🎯 Elite QB Hunter - Prioritizes elite quarterbacks early",
+        "elite_te": "🏈 Elite TE Specialist - Invests heavily in tight end position",
+        "elite_rb": "⚡ Elite RB Prioritizer - Focuses on running back depth",
+        "sleeper_hunter": "🔍 Sleeper Hunter - Finds hidden gems and value picks",
+        "balanced": "⚖️ Balanced - Takes best available player approach"
+    }
+    return descriptions.get(personality, personality)
+
+# Sidebar
 st.sidebar.title("🏈 Fantasy Football League")
-
-league_manager = st.session_state.league_manager
-teams = league_manager.get_all_teams()
-
-# Setup: Let user join/create teams
 st.sidebar.subheader("📋 Team Setup")
 
 if not st.session_state.user_teams:
     st.sidebar.info("You haven't joined any teams yet!")
-    
     if st.sidebar.button("➕ Join a Team"):
-        st.session_state.show_join_modal = True
+        st.session_state.show_join = True
 
-if st.session_state.get('show_join_modal', False):
+if st.session_state.get('show_join', False):
     st.sidebar.markdown("---")
     st.sidebar.subheader("Available Teams to Join")
     
-    for team in teams:
+    for team in st.session_state.teams:
         col1, col2 = st.sidebar.columns([3, 1])
         with col1:
             st.write(f"**{team['name']}** ({team['owner']})")
             if team['is_ai']:
-                personality = league_manager.get_personality_description(team['draft_personality'])
+                personality = get_personality_description(team['draft_personality'])
                 st.caption(f"🤖 {personality}")
             else:
                 st.caption("👤 Human-Managed")
@@ -46,66 +79,55 @@ if st.session_state.get('show_join_modal', False):
             if st.button("Join", key=f"join_{team['id']}"):
                 st.session_state.user_teams.append(team['id'])
                 st.session_state.selected_team = team['id']
-                st.session_state.show_join_modal = False
+                st.session_state.show_join = False
                 st.rerun()
-    
-    st.sidebar.markdown("---")
 
 if st.session_state.user_teams:
     st.sidebar.markdown("---")
     st.sidebar.subheader("Your Teams")
     
-    team_displays = []
-    for team_id in st.session_state.user_teams:
-        team = league_manager.get_team(team_id)
-        team_displays.append(f"{team['name']} ({team['owner']})")
+    team_displays = [f"{st.session_state.teams[tid]['name']} ({st.session_state.teams[tid]['owner']})" 
+                     for tid in st.session_state.user_teams]
     
-    selected_team_display = st.sidebar.selectbox(
-        "Select Team to Manage",
-        team_displays,
-        key="team_selector"
-    )
-    
-    team_idx = st.session_state.user_teams[team_displays.index(selected_team_display)]
-    st.session_state.selected_team = team_idx
+    selected = st.sidebar.selectbox("Select Team", team_displays)
+    st.session_state.selected_team = st.session_state.user_teams[team_displays.index(selected)]
 
 st.sidebar.markdown("---")
-page = st.sidebar.radio(
-    "Navigation",
-    [
-        "🏠 Home/Standings",
-        "⚙️ Settings"
-    ]
-)
+page = st.sidebar.radio("Navigation", ["🏠 Home/Standings", "⚙️ Settings"])
 
+# Main content
 if not st.session_state.user_teams:
-    st.warning("⚠️ Please join a team first from the sidebar to get started!")
-    st.info("""Welcome to Fantasy Football League!
+    st.warning("⚠️ Please join a team first!")
+    st.info("""
+    Welcome to Fantasy Football League!
     
-    Click "➕ Join a Team" in the sidebar to:
-    1. Browse all available teams
-    2. See which teams are AI-managed and their draft strategies
-    3. Join the team of your choice
-    4. Customize your team name and owner name
-    5. Start managing your fantasy team!
+    👈 Click "➕ Join a Team" in the sidebar to get started!
     """)
 else:
     if page == "🏠 Home/Standings":
-        current_team = league_manager.get_team(st.session_state.selected_team)
+        current_team = st.session_state.teams[st.session_state.selected_team]
         st.title("🏠 Home / Standings")
         
-        import pandas as pd
+        # Standings table
+        standings_data = []
+        for i, team in enumerate(st.session_state.teams):
+            standings_data.append({
+                "Rank": i + 1,
+                "Team": team["name"],
+                "Owner": team["owner"],
+                "Wins": team["wins"],
+                "Losses": team["losses"],
+                "PF": f"{team['points_for']:.1f}"
+            })
         
-        standings = league_manager.get_standings()
-        standings_df = pd.DataFrame(standings)
-        standings_df = standings_df[["rank", "name", "owner", "wins", "losses", "points_for", "points_against"]]
-        standings_df.columns = ["Rank", "Team Name", "Owner", "Wins", "Losses", "Points For", "Points Against"]
-        
+        standings_df = pd.DataFrame(standings_data)
         st.subheader("League Standings")
         st.dataframe(standings_df, use_container_width=True, hide_index=True)
         
-        st.subheader(f"📊 {current_team['name']} - Season Overview")
+        st.divider()
         
+        # Current team info
+        st.subheader(f"📊 {current_team['name']} - Overview")
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("Wins", current_team["wins"])
@@ -121,93 +143,65 @@ else:
         col1, col2 = st.columns(2)
         with col1:
             st.info(f"""
-            **League Information**
-            - League: {league_manager.league_data['league_name']}
-            - Season: {league_manager.league_data['season']}
-            - Teams: {len(league_manager.get_all_teams())}
+            **League Info**
+            - League: Fantasy Football League
+            - Season: 2024
+            - Teams: 12
             """)
-        
         with col2:
             status = "🤖 AI-Managed" if current_team['is_ai'] else "👤 Human-Managed"
-            personality = league_manager.get_personality_description(current_team['draft_personality'])
+            personality = get_personality_description(current_team['draft_personality'])
             st.success(f"""
-            **Your Team Stats**
-            - Team: {current_team['name']}
-            - Owner: {current_team['owner']}
+            **Your Team**
             - Status: {status}
             - Strategy: {personality}
+            - Roster: {len(current_team['roster'])} players
             """)
     
     elif page == "⚙️ Settings":
-        current_team = league_manager.get_team(st.session_state.selected_team)
+        current_team = st.session_state.teams[st.session_state.selected_team]
         st.title("⚙️ Team Settings")
-        
-        st.subheader(f"Customize {current_team['name']}")
         
         col1, col2 = st.columns(2)
         
         with col1:
             st.markdown("### Rename Your Team")
-            new_name = st.text_input(
-                "New Team Name",
-                value=current_team['name'],
-                placeholder="Enter new team name",
-                label_visibility="collapsed"
-            )
-            
-            if st.button("Update Team Name", use_container_width=True):
+            new_name = st.text_input("Team Name", value=current_team['name'])
+            if st.button("Update Team Name"):
                 if new_name and new_name != current_team['name']:
-                    league_manager.update_team_name(st.session_state.selected_team, new_name)
+                    current_team['name'] = new_name
                     st.success(f"✅ Team renamed to {new_name}!")
                     st.rerun()
-                elif new_name == current_team['name']:
-                    st.info("Name is already set to this value.")
-                else:
-                    st.warning("Please enter a valid team name.")
         
         with col2:
             st.markdown("### Update Owner Name")
-            new_owner = st.text_input(
-                "Owner Name",
-                value=current_team['owner'],
-                placeholder="Enter your name",
-                label_visibility="collapsed"
-            )
-            
-            if st.button("Update Owner Name", use_container_width=True):
+            new_owner = st.text_input("Owner Name", value=current_team['owner'])
+            if st.button("Update Owner Name"):
                 if new_owner and new_owner != current_team['owner']:
-                    league_manager.update_team_owner(st.session_state.selected_team, new_owner)
-                    st.success(f"✅ Owner name updated to {new_owner}!")
+                    current_team['owner'] = new_owner
+                    st.success(f"✅ Owner updated to {new_owner}!")
                     st.rerun()
-                elif new_owner == current_team['owner']:
-                    st.info("Owner name is already set.")
-                else:
-                    st.warning("Please enter a valid owner name.")
         
         st.divider()
         
-        st.subheader("Team Information")
-        
         col1, col2 = st.columns(2)
-        
         with col1:
             status = "🤖 AI-Managed" if current_team['is_ai'] else "👤 Human-Managed"
             st.info(f"""
-            **Team Status**: {status}
-            **Team ID**: {current_team['id']}
-            **Current Record**: {current_team['wins']}-{current_team['losses']}
-            **Points For**: {current_team['points_for']:.1f}
+            **Team Info**
+            - Status: {status}
+            - Record: {current_team['wins']}-{current_team['losses']}
+            - Points For: {current_team['points_for']:.1f}
             """)
-        
         with col2:
-            personality_desc = league_manager.get_personality_description(current_team['draft_personality'])
+            personality = get_personality_description(current_team['draft_personality'])
             st.info(f"""
-            **Draft Strategy**: {personality_desc}
-            **FAAB Budget Left**: ${current_team['faab_budget']}
-            **Trades Made**: {current_team['trades_made']}
-            **Roster Size**: {len(current_team['roster'])}
+            **Strategy**
+            {personality}
+            
+            FAAB Budget: ${current_team['faab_budget']}
+            Trades Made: {current_team['trades_made']}
             """)
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("*Built with Streamlit & ❤️*")
-st.sidebar.markdown("*Fantasy Football League v1.0*")
